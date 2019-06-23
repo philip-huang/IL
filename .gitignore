@@ -1,3 +1,4 @@
-./data
-./.vscode
+.vscode/
+ckpts/
+data/
 **/__pycache__
