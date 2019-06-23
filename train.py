@@ -70,31 +70,33 @@ def get_loader(numbers, args, device, train):
                            transforms.ToTensor(),
                            transforms.Normalize((0.1307,), (0.3081,))
                        ])
+    dataset = mnist.MNIST('data', numbers, train=train, download=True, transform=trans)
     batch_size = args.batch_size if train else args.test_batch_size
+    if batch_size == None:
+        batch_size = len(dataset)
     loader = torch.utils.data.DataLoader(
-        mnist.MNIST('data', numbers, train=train, download=True, transform=trans),
-        batch_size=batch_size, shuffle=True, **kwargs)
+        dataset, batch_size=batch_size, shuffle=True, **kwargs)
 
     return loader
 
-def get_model(args, device, old_model=None):
+def get_model(args, device, MLE=False):
     if args.model == "dnn":
         model = Dnn()
     if args.model == "cnn":
         model = ConvNet()
     if args.model == "vcl":
-        model = MFVI_DNN(old_model)
+        model = MFVI_DNN(MLE=MLE)
     model_name = 'mnist_{}.pt'.format(args.model)
 
     return model.to(device), model_name
 
-def get_loss_fn(args, model, device):
+def get_loss_fn(args, device, model, old_model=None):
     if args.model == "dnn":
         return F.nll_loss
     if args.model == "cnn":
         return F.nll_loss
     if args.model == "vcl":
-        return VCL_loss(model).to(device)
+        return VCL_loss(model, old_model).to(device)
 
 def get_model_path(numbers, model_name):
     dirname = "{}-{}".format(numbers[0], numbers[-1])
@@ -108,13 +110,13 @@ def get_model_path(numbers, model_name):
 def main():
     # Training settings
     parser = argparse.ArgumentParser(description='PyTorch MNIST Example')
-    parser.add_argument('--batch-size', type=int, default=64, metavar='N',
-                        help='input batch size for training (default: 64)')
-    parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
+    parser.add_argument('--batch-size', type=int, default=None, metavar='N',
+                        help='input batch size for training (default: 6000)')
+    parser.add_argument('--test-batch-size', type=int, default=None, metavar='N',
                         help='input batch size for testing (default: 1000)')
-    parser.add_argument('--epochs', type=int, default=2, metavar='N',
-                        help='number of epochs to train (default: 2)')
-    parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
+    parser.add_argument('--epochs', type=int, default=5, metavar='N',
+                        help='number of epochs to train (default: 5)')
+    parser.add_argument('--lr', type=float, default=0.001, metavar='LR',
                         help='learning rate (default: 0.001)')
     parser.add_argument('--momentum', type=float, default=0.5, metavar='M',
                         help='SGD momentum (default: 0.5)')
@@ -140,9 +142,9 @@ def main():
     task_accs = np.zeros((5, 5))
 
     # Pretraining
-    print ("===========Pretraining {}: {}=============")
-    model, name = get_model(args, device, None)
-    loss_fn = get_loss_fn(args, model, device)
+    print ("=============Pretraining ==================")
+    model, name = get_model(args, device, MLE=True)
+    loss_fn = get_loss_fn(args, device, model)
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
     fit(args, model, device, optimizer, loss_fn, numbers_list, 0)
 
@@ -151,10 +153,10 @@ def main():
         print ("===========TASK {}: {}=============".format(task_id + 1, numbers))
         # Model
         old_model = model
-        model, model_name = get_model(args, device, old_model)
-
+        model, model_name = get_model(args, device)
+        model.load_state_dict(old_model.state_dict())
         # Loss Function and Optimizer
-        loss_fn = get_loss_fn(args, model, device)
+        loss_fn = get_loss_fn(args, device, model, old_model)
         optimizer = optim.Adam(model.parameters(), lr=args.lr)
 
         # Fit

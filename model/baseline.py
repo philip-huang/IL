@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class Dnn(nn.Module):
-    def __init__(self, old_model=None):
+    def __init__(self):
         super(Dnn, self).__init__()
         self.fc1 = nn.Linear(28*28, 256)
         self.fc2 = nn.Linear(256, 256)
@@ -17,7 +17,7 @@ class Dnn(nn.Module):
         return F.log_softmax(x, dim=1)
 
 class ConvNet(nn.Module):
-    def __init__(self, old_model=None):
+    def __init__(self):
         super(ConvNet, self).__init__()
         self.conv1 = nn.Conv2d(1, 20, 5, 1)
         self.conv2 = nn.Conv2d(20, 50, 5, 1)
@@ -35,7 +35,7 @@ class ConvNet(nn.Module):
         return F.log_softmax(x, dim=1)
 
 class MFVI_DNN(nn.Module):
-    def __init__(self, old_model=None):
+    def __init__(self, MLE=False):
         super(MFVI_DNN, self).__init__()
         self.fc11 = nn.Linear(28*28, 256)
         self.fc12 = nn.Linear(28*28, 256)
@@ -48,8 +48,8 @@ class MFVI_DNN(nn.Module):
         self.mu_list = [self.fc11, self.fc21, self.output1]
         self.logvar_list = [self.fc12, self.fc22, self.output2]
 
-        self.old_model = old_model
-        if old_model is None:
+        self.MLE = MLE
+        if self.MLE:
             self.const_init()
 
     def const_init(self):
@@ -59,21 +59,22 @@ class MFVI_DNN(nn.Module):
         torch.nn.init.normal_(self.fc21.bias, std=0.1)
         torch.nn.init.normal_(self.output1.weight, std=0.1)
         torch.nn.init.normal_(self.output1.bias, std=0.1)
-        self.fc12.weight.data.fill_(-6.0)
+        self.fc12.weight.data.fill_(0.0)
         self.fc12.bias.data.fill_(-6.0)
-        self.fc22.weight.data.fill_(-6.0)
+        self.fc22.weight.data.fill_(0.0)
         self.fc22.bias.data.fill_(-6.0)
-        self.output2.weight.data.fill_(-6.0)
+        self.output2.weight.data.fill_(0.0)
         self.output2.bias.data.fill_(-6.0)
 
     def reparametize(self, mu, logvar):
         std = torch.exp(0.5*logvar)
         eps = torch.randn_like(std)
-        return mu + eps*std
-
+        sample = mu + eps*std
+        return sample
+    
     def forward(self, x):
         x = x.view(-1, 28*28)
-        if self.old_model:
+        if not self.MLE:
             x = F.relu(self.reparametize(self.fc11(x), self.fc12(x)))
             x = F.relu(self.reparametize(self.fc21(x), self.fc22(x)))
             x = self.reparametize(self.output1(x), self.output2(x))
@@ -83,19 +84,23 @@ class MFVI_DNN(nn.Module):
             x = self.output1(x)
         return F.log_softmax(x, dim = 1)
 
-    def KL_term(self):
+    def KL_term(self, old_model):
         kl_div = 0
-        if self.old_model is None:
-            return kl_div
         
         iterator = zip(self.mu_list, self.logvar_list, 
-                self.old_model.mu_list, self.old_model.logvar_list)
+                old_model.mu_list, old_model.logvar_list)
         for (mu, logvar, mu_prior, logvar_prior) in iterator:
-            # Detach From current graph (do not propagate grad)
-            mu_prior_b = mu_prior.bias.detach()
-            mu_prior_w = mu_prior.weight.detach()
-            logvar_prior_b = logvar_prior.bias.detach()
-            logvar_prior_w = logvar_prior.weight.detach()
+            if old_model.MLE:
+                mu_prior_b = torch.zeros_like(mu_prior.bias, requires_grad=False)
+                mu_prior_w = torch.zeros_like(mu_prior.weight, requires_grad=False)
+                logvar_prior_b = torch.zeros_like(logvar_prior.bias, requires_grad=False)
+                logvar_prior_w = torch.zeros_like(logvar_prior.weight, requires_grad=False)
+            else:
+                # Detach From current graph (do not propagate grad)
+                mu_prior_b = mu_prior.bias.detach()
+                mu_prior_w = mu_prior.weight.detach()
+                logvar_prior_b = logvar_prior.bias.detach()
+                logvar_prior_w = logvar_prior.weight.detach()
 
             var_b = torch.exp(logvar.bias)
             var_w = torch.exp(logvar.weight)
@@ -118,15 +123,20 @@ class MFVI_DNN(nn.Module):
 
 
 class VCL_loss(nn.Module):
-    def __init__(self, vcl):
+    def __init__(self, model, old_model):
         super(VCL_loss, self).__init__()
-        self.vcl = vcl
+        self.model = model
+        self.old_model = old_model
 
     def forward(self, output, target, reduction='mean'):
         normalizer = target.size(0) if reduction == 'mean' else 1
         nll = F.nll_loss(output, target, reduction=reduction)
-        kl_term = self.vcl.KL_term() / normalizer
-        return nll + kl_term
+        
+        if self.old_model is None:
+            return nll
+        else:
+            kl_term = self.model.KL_term(self.old_model) / normalizer
+            return nll + kl_term
 
 
 if __name__ == "__main__":
