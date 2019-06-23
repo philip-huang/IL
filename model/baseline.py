@@ -50,12 +50,21 @@ class MFVI_DNN(nn.Module):
 
         self.old_model = old_model
         if old_model is None:
-            self.apply(self.const_init)
+            self.const_init()
 
-    def const_init(self, m):
-        if type(m) == nn.Linear:
-            torch.nn.init.normal_(m.weight, std=0.1)
-            m.bias.data.fill_(-6.0)
+    def const_init(self):
+        torch.nn.init.normal_(self.fc11.weight, std=0.1)
+        torch.nn.init.normal_(self.fc11.bias, std=0.1)
+        torch.nn.init.normal_(self.fc21.weight, std=0.1)
+        torch.nn.init.normal_(self.fc21.bias, std=0.1)
+        torch.nn.init.normal_(self.output1.weight, std=0.1)
+        torch.nn.init.normal_(self.output1.bias, std=0.1)
+        self.fc12.weight.data.fill_(-6.0)
+        self.fc12.bias.data.fill_(-6.0)
+        self.fc22.weight.data.fill_(-6.0)
+        self.fc22.bias.data.fill_(-6.0)
+        self.output2.weight.data.fill_(-6.0)
+        self.output2.bias.data.fill_(-6.0)
 
     def reparametize(self, mu, logvar):
         std = torch.exp(0.5*logvar)
@@ -76,11 +85,11 @@ class MFVI_DNN(nn.Module):
 
     def KL_term(self):
         kl_div = 0
-        if not self.old_model:
+        if self.old_model is None:
             return kl_div
         
         iterator = zip(self.mu_list, self.logvar_list, 
-                self.old_model.mu_list, self.old_model.logvarList)
+                self.old_model.mu_list, self.old_model.logvar_list)
         for (mu, logvar, mu_prior, logvar_prior) in iterator:
             # Detach From current graph (do not propagate grad)
             mu_prior_b = mu_prior.bias.detach()
@@ -117,7 +126,6 @@ class VCL_loss(nn.Module):
         normalizer = target.size(0) if reduction == 'mean' else 1
         nll = F.nll_loss(output, target, reduction=reduction)
         kl_term = self.vcl.KL_term() / normalizer
-
         return nll + kl_term
 
 

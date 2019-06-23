@@ -43,7 +43,28 @@ def test(args, model, device, test_loader, loss_fn):
 
     return test_loss, acc
 
-def get_loader(numbers, args, use_cuda, train):
+def fit(args, model, device, optimizer, loss_fn, numbers_list, task_id):
+    # Dataset Loader
+    train_loader = get_loader(numbers_list[task_id], args, device, True)
+    # Log Best Accuracy
+    best_accs = np.zeros(len(numbers_list))
+
+    # Training loop
+    for epoch in range(1, args.epochs + 1):
+        accs = np.zeros(len(numbers_list))
+        train(args, model, device, train_loader, optimizer, epoch, loss_fn)
+        # Evaluate all tasks
+        for j in range(task_id + 1):
+            loader = get_loader(numbers_list[j], args, device, False)
+            _, accs[j] = test(args, model, device, loader, loss_fn)
+            if accs[task_id] > best_accs[task_id]:
+                best_accs = accs
+                best_state = model.state_dict()
+    
+    return best_state, best_accs
+
+def get_loader(numbers, args, device, train):
+    use_cuda = ("cuda" in device.type)
     kwargs = {'num_workers': 1, 'pin_memory': True} if use_cuda else {}
     trans = transforms.Compose([
                            transforms.ToTensor(),
@@ -56,13 +77,33 @@ def get_loader(numbers, args, use_cuda, train):
 
     return loader
 
-def get_test_loaders(task_id, args, use_cuda):
-    loaders = []
-    for num in range(task_id + 1):
-        loader = get_loader([num * 2, num * 2 + 1], args, use_cuda, False)
-        loaders.append(loader)
-    
-    return loaders
+def get_model(args, device, old_model=None):
+    if args.model == "dnn":
+        model = Dnn()
+    if args.model == "cnn":
+        model = ConvNet()
+    if args.model == "vcl":
+        model = MFVI_DNN(old_model)
+    model_name = 'mnist_{}.pt'.format(args.model)
+
+    return model.to(device), model_name
+
+def get_loss_fn(args, model, device):
+    if args.model == "dnn":
+        return F.nll_loss
+    if args.model == "cnn":
+        return F.nll_loss
+    if args.model == "vcl":
+        return VCL_loss(model).to(device)
+
+def get_model_path(numbers, model_name):
+    dirname = "{}-{}".format(numbers[0], numbers[-1])
+    dirpath = os.path.join(os.getcwd(),'ckpts', dirname)
+    if not (os.path.exists(dirpath)):
+        os.mkdir(dirpath)
+    path = os.path.join(dirpath, model_name)
+
+    return path
 
 def main():
     # Training settings
@@ -94,53 +135,34 @@ def main():
     use_cuda = not args.no_cuda and torch.cuda.is_available()
     device = torch.device("cuda" if use_cuda else "cpu")
 
-    # Initialize Model
-    model_dict = {"dnn": Dnn, "cnn": ConvNet, "vcl": MFVI_DNN}
-
-    Model = model_dict[args.model]
-    model = Model().to(device)
-    model_name = 'mnist_{}.pt'.format(args.model)
-
-    # Loss Function and Optimizer
-    loss_dict = {"dnn": F.nll_loss, "cnn": F.nll_loss, "vcl": VCL_loss(model)}
-    loss_fn = loss_dict[args.model]
-    optimizer = optim.Adam(model.parameters(), lr=args.lr)
-
     # Initialize Training Stuff
-    numbers_list = np.split(np.arange(10), 5)
+    numbers_list = [[0, 1], [2, 3], [4, 5], [6, 7], [8, 9]]
     task_accs = np.zeros((5, 5))
-    dir_list = ['0-1', '2-3', '4-5', '6-7', '8-9']
-    best_model = model.state_dict()
+
+    # Pretraining
+    print ("===========Pretraining {}: {}=============")
+    model, name = get_model(args, device, None)
+    loss_fn = get_loss_fn(args, model, device)
+    optimizer = optim.Adam(model.parameters(), lr=args.lr)
+    fit(args, model, device, optimizer, loss_fn, numbers_list, 0)
 
     # train all tasks incrementally
-    for i, numbers in enumerate(numbers_list):
-        print ("===========TASK {}: {}=============".format(i + 1, dir_list[i]))
-        train_loader = get_loader(numbers, args, use_cuda, True)
-        test_loaders = get_test_loaders(i, args, use_cuda)
+    for task_id, numbers in enumerate(numbers_list):
+        print ("===========TASK {}: {}=============".format(task_id + 1, numbers))
+        # Model
+        old_model = model
+        model, model_name = get_model(args, device, old_model)
 
-        # Restore from before
-        if i >= 1:
-            model = Model(old_model = model)
-            path = os.path.join(os.getcwd(), 'ckpts', dir_list[i-1], model_name)
-            model.load_state_dict(torch.load(path), strict=False)
-            print ("Restored from {}".format(path))
+        # Loss Function and Optimizer
+        loss_fn = get_loss_fn(args, model, device)
+        optimizer = optim.Adam(model.parameters(), lr=args.lr)
 
-        for epoch in range(1, args.epochs + 1):
-            accs = np.zeros(5)
-            train(args, model, device, train_loader, optimizer, epoch, loss_fn)
-            # Evaluate all tasks
-            for j, loader in enumerate(test_loaders):
-                _, accs[j] = test(args, model, device, loader, loss_fn)
-            if accs[i] > task_accs[i, i]:
-                task_accs[i, :] = accs
-                best_model = model.state_dict()
+        # Fit
+        best_state, task_accs[task_id, :]=fit(args, model, device, optimizer, loss_fn, numbers_list, task_id)
 
         # save model
-        dirpath = os.path.join(os.getcwd(),'ckpts', dir_list[i])
-        if not (os.path.exists(dirpath)):
-            os.mkdir(dirpath)
-        path = os.path.join(dirpath, model_name)
-        torch.save(best_model, path)
+        path = get_model_path(numbers, model_name)
+        torch.save(best_state, path)
 
 if __name__ == '__main__':
     main()
