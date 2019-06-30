@@ -51,11 +51,16 @@ def fit(args, model, device, optimizer, loss_fn, numbers_list, task_id):
 
     # Training loop
     for epoch in range(1, args.epochs + 1):
-        accs = np.zeros(len(numbers_list))
+        # Prepare model for current task
+        model.set_range(numbers_list[task_id])
         train(args, model, device, train_loader, optimizer, epoch, loss_fn)
         # Evaluate all tasks
+        accs = np.zeros(len(numbers_list))
         for j in range(task_id + 1):
+            # Prepare model and dataset for the task j
             loader = get_loader(numbers_list[j], args, device, False)
+            model.set_range(numbers_list[j])
+
             _, accs[j] = test(args, model, device, loader, loss_fn)
             if accs[task_id] > best_accs[task_id]:
                 best_accs = accs
@@ -114,8 +119,8 @@ def main():
                         help='input batch size for training (default: 6000)')
     parser.add_argument('--test-batch-size', type=int, default=None, metavar='N',
                         help='input batch size for testing (default: 1000)')
-    parser.add_argument('--epochs', type=int, default=5, metavar='N',
-                        help='number of epochs to train (default: 5)')
+    parser.add_argument('--epochs', type=int, default=20, metavar='N',
+                        help='number of epochs to train (default: 20)')
     parser.add_argument('--lr', type=float, default=0.001, metavar='LR',
                         help='learning rate (default: 0.001)')
     parser.add_argument('--momentum', type=float, default=0.5, metavar='M',
@@ -133,7 +138,7 @@ def main():
     args = parser.parse_args()
 
     torch.manual_seed(args.seed)
-
+    np.random.seed(args.seed)
     use_cuda = not args.no_cuda and torch.cuda.is_available()
     device = torch.device("cuda" if use_cuda else "cpu")
 
