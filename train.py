@@ -2,9 +2,11 @@ import torch
 import torch.nn.functional as F
 import torch.optim as optim
 import numpy as np
-import mnist
 import argparse
 import os
+
+import mnist
+import utils
 
 from torchvision import transforms
 from model.baseline import *
@@ -170,6 +172,10 @@ def main():
         # save model
         path = get_model_path(numbers, model_name)
         torch.save(best_state, path)
+
+    utils.plot(task_accs)
+    avg_acc = np.mean(task_accs[-1, :])
+    print ("Final Average Accuracy: {}".format(avg_acc))
 
 if __name__ == '__main__':
     main()
