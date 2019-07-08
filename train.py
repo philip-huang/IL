@@ -25,7 +25,7 @@ def train(args, model, device, train_loader, optimizer, epoch, loss_fn):
                 epoch, batch_idx * len(data), len(train_loader.dataset),
                 100. * batch_idx / len(train_loader), loss.item()))
 
-def test(args, model, device, test_loader, loss_fn):
+def test(args, model, device, test_loader, loss_fn, val=False):
     model.eval()
     test_loss = 0
     correct = 0
@@ -39,16 +39,16 @@ def test(args, model, device, test_loader, loss_fn):
 
     test_loss /= len(test_loader.dataset)
     acc = float(correct) / len(test_loader.dataset)
-    print('Test set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)'.format(
-        test_loss, correct, len(test_loader.dataset),
-        acc * 100.))
+    print('{} set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)'.format(
+        'Val' if val else 'Test',
+        test_loss, correct, len(test_loader.dataset), acc * 100.))
 
     return test_loss, acc
 
 def fit(args, model, device, optimizer, loss_fn, numbers_list, task_id):
     # Dataset Loader
-    train_loader = get_loader(numbers_list[task_id], args, device, 'train')
-    val_loader = get_loader(numbers_list[task_id], args, device, 'val')
+    train_loader = get_loader(task_id, args, device, 'train')
+    val_loader = get_loader(task_id, args, device, 'val')
     # Log Best Accuracy
     best_val_acc = 0
     all_test_accs = []
@@ -60,7 +60,7 @@ def fit(args, model, device, optimizer, loss_fn, numbers_list, task_id):
         # Prepare model for current task
         model.set_range(numbers_list[task_id])
         train(args, model, device, train_loader, optimizer, epoch, loss_fn)
-        _, val_acc = test(args, model, device, val_loader, loss_fn)
+        _, val_acc = test(args, model, device, val_loader, loss_fn, val=True)
         if val_acc > best_val_acc:
             best_val_acc = val_acc
             best_state = model.state_dict()
@@ -74,7 +74,7 @@ def fit(args, model, device, optimizer, loss_fn, numbers_list, task_id):
         test_accs = np.zeros(len(numbers_list))
         for j, numbers in enumerate(numbers_list):
             # Prepare model and dataset for the task j
-            loader = get_loader(numbers, args, device, 'test')
+            loader = get_loader(j, args, device, 'test')
             model.set_range(numbers)
 
             _, test_accs[j] = test(args, model, device, loader, loss_fn)
@@ -82,21 +82,22 @@ def fit(args, model, device, optimizer, loss_fn, numbers_list, task_id):
     
     return best_state, all_test_accs
 
-def get_loader(numbers, args, device, split):
+def get_loader(task_id, args, device, split):
     use_cuda = ("cuda" in device.type)
     kwargs = {'num_workers': 1, 'pin_memory': True} if use_cuda else {}
     trans = transforms.Compose([
                            transforms.ToTensor(),
                            transforms.Normalize((0.1307,), (0.3081,))
                        ])
+    Dataset = mnist.SplitMNIST if args.dataset == 'splitMNIST' else mnist.PermutedMNIST
     if split == 'train':
-        trainval = mnist.MNIST('data', numbers, train=True, download=True, transform=trans)
+        trainval = Dataset('data', task_id, train=True, download=True, transform=trans)
         dataset = mnist.getTrain(trainval)
     elif split == 'val':
-        trainval = mnist.MNIST('data', numbers, train=True, download=True, transform=trans)
+        trainval = Dataset('data', task_id, train=True, download=True, transform=trans)
         dataset = mnist.getVal(trainval)
     else:
-        dataset = mnist.MNIST('data', numbers, train=False, download=True, transform=trans)
+        dataset = Dataset('data', task_id, train=False, download=True, transform=trans)
     batch_size = args.batch_size if train else args.test_batch_size
     if batch_size == None:
         batch_size = len(dataset)
@@ -136,8 +137,8 @@ def get_model_path(numbers, model_name):
 def main():
     # Training settings
     parser = argparse.ArgumentParser(description='PyTorch MNIST Example')
-    parser.add_argument('--batch-size', type=int, default=None, metavar='N',
-                        help='input batch size for training (default: 6000)')
+    parser.add_argument('--batch-size', type=int, default=256, metavar='N',
+                        help='input batch size for training (default: 256)')
     parser.add_argument('--test-batch-size', type=int, default=None, metavar='N',
                         help='input batch size for testing (default: 1000)')
     parser.add_argument('--epochs', type=int, default=20, metavar='N',
@@ -156,6 +157,8 @@ def main():
                         help='how many batches to wait before logging training status')
     parser.add_argument('--model', type=str, default='vcl',
                         help="model type (dnn or cnn or vcl)")
+    parser.add_argument('--dataset', type=str, default='permutedMNIST',
+                        help="dataset type (splitMNIST or permutedMNIST")
     parser.add_argument('--save-model', action='store_true', default=True,
                         help='For Saving the current Model')
     args = parser.parse_args()
@@ -166,7 +169,12 @@ def main():
     device = torch.device("cuda" if use_cuda else "cpu")
 
     # Initialize Training Stuff
-    numbers_list = [[0, 1], [2, 3], [4, 5], [6, 7], [8, 9]]
+    assert args.dataset in ["splitMNIST", "permutedMNIST"]
+    if args.dataset == "splitMNIST":
+        numbers_list = [[0, 1], [2, 3], [4, 5], [6, 7], [8, 9]]
+    elif args.dataset == 'permutedMNIST':
+        numbers_list = [list(range(10))] * 5
+    
     task_final_accs = np.zeros((5, 5)) # Test accuracy after each task ends
     all_accs = [] # Test accuracy after every epoch
 
@@ -197,8 +205,8 @@ def main():
         path = get_model_path(numbers, model_name)
         torch.save(best_state, path)
 
-    utils.plot_small(task_final_accs)
-    utils.plot_all(all_accs)
+    utils.plot_small(task_final_accs, args.dataset)
+    utils.plot_all(all_accs, args.dataset)
     avg_acc = np.mean(all_accs[-1])
     print ("Final Average Accuracy: {}".format(avg_acc))
 
