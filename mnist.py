@@ -4,6 +4,19 @@ import numpy as np
 import torch
 import torch.utils.data as data
 
+def getVal(trainval):
+    val_size = 1000
+    train_size = len(trainval) - val_size
+    val_indices = range(train_size, train_size + val_size)
+    val = data.Subset(trainval, val_indices)
+    return val
+
+def getTrain(trainval):
+    val_size = 1000
+    train_size = len(trainval) - val_size
+    train_indices = range(train_size)
+    train = data.Subset(trainval, train_indices)
+    return train
 
 class MNIST(datasets.MNIST):
 
@@ -22,8 +35,20 @@ class MNIST(datasets.MNIST):
                 index.append(i)
         self.targets = self.targets[index]
         self.data = self.data[index]
-   
+
+def test0():
+    Mnist = MNIST("data", [0, 1], download=True)
+    print(Mnist.targets.size())
+
+def test1():
+    Mnist = MNIST("data", [0, 1], download=True)
+    train_dataset = getTrain(Mnist)
+    val_dataset = getVal(Mnist)
+    print('train size:', len(train_dataset))
+    print('val size:', len(val_dataset))
+    im = val_dataset[0][0]
+    im.show()
 
 if __name__ == "__main__":
-    Mnist = MNIST(".data/", [0, 1], download=True)
-    print(Mnist.targets.size())
+    test0()
+    test1()

@@ -47,37 +47,56 @@ def test(args, model, device, test_loader, loss_fn):
 
 def fit(args, model, device, optimizer, loss_fn, numbers_list, task_id):
     # Dataset Loader
-    train_loader = get_loader(numbers_list[task_id], args, device, True)
+    train_loader = get_loader(numbers_list[task_id], args, device, 'train')
+    val_loader = get_loader(numbers_list[task_id], args, device, 'val')
     # Log Best Accuracy
-    best_accs = np.zeros(len(numbers_list))
+    best_val_acc = 0
+    all_test_accs = []
+    # Early Stopping
+    early_stop = 0
 
     # Training loop
     for epoch in range(1, args.epochs + 1):
         # Prepare model for current task
         model.set_range(numbers_list[task_id])
         train(args, model, device, train_loader, optimizer, epoch, loss_fn)
-        # Evaluate all tasks
-        accs = np.zeros(len(numbers_list))
-        for j in range(task_id + 1):
+        _, val_acc = test(args, model, device, val_loader, loss_fn)
+        if val_acc > best_val_acc:
+            best_val_acc = val_acc
+            best_state = model.state_dict()
+            early_stop = 0
+        else:
+            early_stop += 1
+            if early_stop >= args.early_stop_after:
+                break
+
+        # Evaluate all tasks on test set
+        test_accs = np.zeros(len(numbers_list))
+        for j, numbers in enumerate(numbers_list):
             # Prepare model and dataset for the task j
-            loader = get_loader(numbers_list[j], args, device, False)
-            model.set_range(numbers_list[j])
+            loader = get_loader(numbers, args, device, 'test')
+            model.set_range(numbers)
 
-            _, accs[j] = test(args, model, device, loader, loss_fn)
-            if accs[task_id] > best_accs[task_id]:
-                best_accs = accs
-                best_state = model.state_dict()
+            _, test_accs[j] = test(args, model, device, loader, loss_fn)
+        all_test_accs.append(test_accs)
     
-    return best_state, best_accs
+    return best_state, all_test_accs
 
-def get_loader(numbers, args, device, train):
+def get_loader(numbers, args, device, split):
     use_cuda = ("cuda" in device.type)
     kwargs = {'num_workers': 1, 'pin_memory': True} if use_cuda else {}
     trans = transforms.Compose([
                            transforms.ToTensor(),
                            transforms.Normalize((0.1307,), (0.3081,))
                        ])
-    dataset = mnist.MNIST('data', numbers, train=train, download=True, transform=trans)
+    if split == 'train':
+        trainval = mnist.MNIST('data', numbers, train=True, download=True, transform=trans)
+        dataset = mnist.getTrain(trainval)
+    elif split == 'val':
+        trainval = mnist.MNIST('data', numbers, train=True, download=True, transform=trans)
+        dataset = mnist.getVal(trainval)
+    else:
+        dataset = mnist.MNIST('data', numbers, train=False, download=True, transform=trans)
     batch_size = args.batch_size if train else args.test_batch_size
     if batch_size == None:
         batch_size = len(dataset)
@@ -127,6 +146,8 @@ def main():
                         help='learning rate (default: 0.001)')
     parser.add_argument('--momentum', type=float, default=0.5, metavar='M',
                         help='SGD momentum (default: 0.5)')
+    parser.add_argument('--early-stop-after', type=int, default=3, metavar='N',
+                        help='Early Stopping After # epochs (default: 3')
     parser.add_argument('--no-cuda', action='store_true', default=False,
                         help='disables CUDA training')
     parser.add_argument('--seed', type=int, default=1, metavar='S',
@@ -146,7 +167,8 @@ def main():
 
     # Initialize Training Stuff
     numbers_list = [[0, 1], [2, 3], [4, 5], [6, 7], [8, 9]]
-    task_accs = np.zeros((5, 5))
+    task_final_accs = np.zeros((5, 5)) # Test accuracy after each task ends
+    all_accs = [] # Test accuracy after every epoch
 
     # Pretraining
     print ("=============Pretraining ==================")
@@ -167,14 +189,17 @@ def main():
         optimizer = optim.Adam(model.parameters(), lr=args.lr)
 
         # Fit
-        best_state, task_accs[task_id, :]=fit(args, model, device, optimizer, loss_fn, numbers_list, task_id)
+        best_state, test_accs = fit(args, model, device, optimizer, loss_fn, numbers_list, task_id)
+        task_final_accs[task_id] = test_accs[-1]
+        all_accs.extend(test_accs)
 
         # save model
         path = get_model_path(numbers, model_name)
         torch.save(best_state, path)
 
-    utils.plot(task_accs)
-    avg_acc = np.mean(task_accs[-1, :])
+    utils.plot_small(task_final_accs)
+    utils.plot_all(all_accs)
+    avg_acc = np.mean(all_accs[-1])
     print ("Final Average Accuracy: {}".format(avg_acc))
 
 if __name__ == '__main__':
