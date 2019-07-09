@@ -70,15 +70,24 @@ class SplitMNIST(datasets.MNIST):
         self.targets = self.targets[index]
         self.data = self.data[index]
 
-def test0():
-    Mnist = SplitMNIST("data", 0, download=True)
-    print(Mnist.targets.size())
+class FashionMNIST(SplitMNIST):
+    urls = [
+        'http://fashion-mnist.s3-website.eu-central-1.amazonaws.com/train-images-idx3-ubyte.gz',
+        'http://fashion-mnist.s3-website.eu-central-1.amazonaws.com/train-labels-idx1-ubyte.gz',
+        'http://fashion-mnist.s3-website.eu-central-1.amazonaws.com/t10k-images-idx3-ubyte.gz',
+        'http://fashion-mnist.s3-website.eu-central-1.amazonaws.com/t10k-labels-idx1-ubyte.gz',
+    ]
+    classes = ['T-shirt/top', 'Trouser', 'Pullover', 'Dress', 'Coat', 'Sandal',
+               'Shirt', 'Sneaker', 'Bag', 'Ankle boot']
 
+def test0(Dataset):
+    ds = Dataset("data", 0, download=True)
+    print(ds.targets.size())
 
-def test1():
-    Mnist = SplitMNIST("data", 0, download=True)
-    train_dataset = getTrain(Mnist)
-    val_dataset = getVal(Mnist)
+def test1(Dataset):
+    ds = Dataset("data", 0, download=True)
+    train_dataset = getTrain(ds)
+    val_dataset = getVal(ds)
     print('train size:', len(train_dataset))
     print('val size:', len(val_dataset))
     im = val_dataset[0][0]
@@ -99,6 +108,8 @@ def test2():
     im.show()
 
 if __name__ == "__main__":
-    test0()
-    test1()
+    test0(SplitMNIST)
+    test0(FashionMNIST)
+    test1(SplitMNIST)
+    test1(FashionMNIST)
     test2()

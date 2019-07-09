@@ -45,7 +45,7 @@ def test(args, model, device, test_loader, loss_fn, val=False):
 
     return test_loss, acc
 
-def fit(args, model, device, optimizer, loss_fn, numbers_list, task_id):
+def fit(args, model, device, optimizer, loss_fn, labels_list, task_id):
     # Dataset Loader
     train_loader = get_loader(task_id, args, device, 'train')
     val_loader = get_loader(task_id, args, device, 'val')
@@ -58,7 +58,7 @@ def fit(args, model, device, optimizer, loss_fn, numbers_list, task_id):
     # Training loop
     for epoch in range(1, args.epochs + 1):
         # Prepare model for current task
-        model.set_range(numbers_list[task_id])
+        model.set_range(labels_list[task_id])
         train(args, model, device, train_loader, optimizer, epoch, loss_fn)
         _, val_acc = test(args, model, device, val_loader, loss_fn, val=True)
         if val_acc > best_val_acc:
@@ -71,11 +71,11 @@ def fit(args, model, device, optimizer, loss_fn, numbers_list, task_id):
                 break
 
         # Evaluate all tasks on test set
-        test_accs = np.zeros(len(numbers_list))
-        for j, numbers in enumerate(numbers_list):
+        test_accs = np.zeros(len(labels_list))
+        for j, labels in enumerate(labels_list):
             # Prepare model and dataset for the task j
             loader = get_loader(j, args, device, 'test')
-            model.set_range(numbers)
+            model.set_range(labels)
 
             _, test_accs[j] = test(args, model, device, loader, loss_fn)
         all_test_accs.append(test_accs)
@@ -89,7 +89,13 @@ def get_loader(task_id, args, device, split):
                            transforms.ToTensor(),
                            transforms.Normalize((0.1307,), (0.3081,))
                        ])
-    Dataset = mnist.SplitMNIST if args.dataset == 'splitMNIST' else mnist.PermutedMNIST
+    if args.dataset=='splitMNIST':
+        Dataset = mnist.SplitMNIST
+    elif args.dataset=='fashionMNIST':
+        Dataset = mnist.FashionMNIST
+    elif args.dataset=='permutedMNIST':
+        Dataset = mnist.PermutedMNIST
+    
     if split == 'train':
         trainval = Dataset('data', task_id, train=True, download=True, transform=trans)
         dataset = mnist.getTrain(trainval)
@@ -98,6 +104,7 @@ def get_loader(task_id, args, device, split):
         dataset = mnist.getVal(trainval)
     else:
         dataset = Dataset('data', task_id, train=False, download=True, transform=trans)
+    
     batch_size = args.batch_size if train else args.test_batch_size
     if batch_size == None:
         batch_size = len(dataset)
@@ -125,8 +132,8 @@ def get_loss_fn(args, device, model, old_model=None):
     if args.model == "vcl":
         return VCL_loss(model, old_model).to(device)
 
-def get_model_path(numbers, model_name):
-    dirname = "{}-{}".format(numbers[0], numbers[-1])
+def get_model_path(labels, model_name):
+    dirname = "{}-{}".format(labels[0], labels[-1])
     dirpath = os.path.join(os.getcwd(),'ckpts', dirname)
     if not (os.path.exists(dirpath)):
         os.mkdir(dirpath)
@@ -157,8 +164,8 @@ def main():
                         help='how many batches to wait before logging training status')
     parser.add_argument('--model', type=str, default='vcl',
                         help="model type (dnn or cnn or vcl)")
-    parser.add_argument('--dataset', type=str, default='permutedMNIST',
-                        help="dataset type (splitMNIST or permutedMNIST")
+    parser.add_argument('--dataset', type=str, default='fashionMNIST',
+                        help="dataset type (splitMNIST or permutedMNIST or fashionMNIST")
     parser.add_argument('--save-model', action='store_true', default=True,
                         help='For Saving the current Model')
     args = parser.parse_args()
@@ -169,11 +176,11 @@ def main():
     device = torch.device("cuda" if use_cuda else "cpu")
 
     # Initialize Training Stuff
-    assert args.dataset in ["splitMNIST", "permutedMNIST"]
-    if args.dataset == "splitMNIST":
-        numbers_list = [[0, 1], [2, 3], [4, 5], [6, 7], [8, 9]]
+    assert args.dataset in ["splitMNIST", "permutedMNIST", 'fashionMNIST']
+    if args.dataset == "splitMNIST" or args.dataset == 'fashionMNIST':
+        labels_list = [[0, 1], [2, 3], [4, 5], [6, 7], [8, 9]]
     elif args.dataset == 'permutedMNIST':
-        numbers_list = [list(range(10))] * 5
+        labels_list = [list(range(10))] * 5
     
     task_final_accs = np.zeros((5, 5)) # Test accuracy after each task ends
     all_accs = [] # Test accuracy after every epoch
@@ -183,11 +190,11 @@ def main():
     model, name = get_model(args, device, MLE=True)
     loss_fn = get_loss_fn(args, device, model)
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
-    fit(args, model, device, optimizer, loss_fn, numbers_list, 0)
+    fit(args, model, device, optimizer, loss_fn, labels_list, 0)
 
     # train all tasks incrementally
-    for task_id, numbers in enumerate(numbers_list):
-        print ("===========TASK {}: {}=============".format(task_id + 1, numbers))
+    for task_id, labels in enumerate(labels_list):
+        print ("===========TASK {}: {}=============".format(task_id + 1, labels))
         # Model
         old_model = model
         model, model_name = get_model(args, device)
@@ -197,12 +204,12 @@ def main():
         optimizer = optim.Adam(model.parameters(), lr=args.lr)
 
         # Fit
-        best_state, test_accs = fit(args, model, device, optimizer, loss_fn, numbers_list, task_id)
+        best_state, test_accs = fit(args, model, device, optimizer, loss_fn, labels_list, task_id)
         task_final_accs[task_id] = test_accs[-1]
         all_accs.extend(test_accs)
 
         # save model
-        path = get_model_path(numbers, model_name)
+        path = get_model_path(labels, model_name)
         torch.save(best_state, path)
 
     utils.plot_small(task_final_accs, args.dataset)
