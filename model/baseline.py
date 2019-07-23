@@ -159,7 +159,6 @@ class VCL_loss(nn.Module):
 
     def forward(self, output, target, reduction='mean'):
         # Adjust the output range according to task id.
-        target -= self.model.range[0]
         nll = F.nll_loss(output, target, reduction=reduction)
         
         if self.old_model is None:

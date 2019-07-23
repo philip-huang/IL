@@ -69,6 +69,40 @@ class SplitMNIST(datasets.MNIST):
                 index.append(i)
         self.targets = self.targets[index]
         self.data = self.data[index]
+    
+    def __getitem__(self, index):
+        img, target = super(SplitMNIST, self).__getitem__(index)
+        target -= self.numbers[0]
+        return img, target
+
+
+class SplitMNIST10(datasets.MNIST):
+    """
+    Generative Dataset with MNIST (0, 1, 2, 3, ...)
+    """
+    numbers_list = [[0], [1], [2], [3], [4], [5], [6], [7], [8], [9]]
+
+    def __init__(self, root, task_id, **kwargs):
+        super(SplitMNIST10, self).__init__(root, **kwargs)
+        self.index = []
+        self.task_id = task_id
+        self.numbers = SplitMNIST10.numbers_list[task_id]
+        self.select()
+
+    def select(self):
+        if not hasattr(self.numbers, "__len__"):
+            self.numbers = [self.numbers]
+        index = []
+        for i, num in enumerate(self.targets):
+            if num.item() in self.numbers:
+                index.append(i)
+        self.targets = self.targets[index]
+        self.data = self.data[index]
+    
+    def __getitem__(self, index):
+        img, target = super(SplitMNIST10, self).__getitem__(index)
+        target -= self.numbers[0]
+        return img, target
 
 class FashionMNIST(SplitMNIST):
     urls = [
@@ -108,8 +142,8 @@ def test2():
     im.show()
 
 if __name__ == "__main__":
-    test0(SplitMNIST)
+    test0(SplitMNIST10)
     test0(FashionMNIST)
-    test1(SplitMNIST)
+    test1(SplitMNIST10)
     test1(FashionMNIST)
     test2()

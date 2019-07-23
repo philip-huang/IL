@@ -1,9 +1,10 @@
 import numpy as np
+import torch
 import matplotlib.pyplot as plt
 plt.style.use('ggplot')
 import os.path as osp
 
-def plot_all(all_accs, dataset, show=False):
+def plot_all(all_accs, config_str, show=False):
     fig, ax = plt.subplots()
     epochs = np.arange(len(all_accs))
     all_accs = np.array(all_accs)
@@ -16,11 +17,11 @@ def plot_all(all_accs, dataset, show=False):
     ax.set_xlabel('Epochs')
     ax.set_ylabel("Accuracy")
     ax.legend()
-    fig.savefig('acc_all_{}.png'.format(dataset))
+    fig.savefig('acc_all_{}.png'.format(config_str))
     if show:
         plt.show()
 
-def plot_small(task_accs, dataset, show=False):
+def plot_small(task_accs, config_str, show=False):
     number = task_accs.shape[0]
     fig, axes = plt.subplots(1, 5, figsize=(16, 4), sharey=True)
 
@@ -31,7 +32,7 @@ def plot_small(task_accs, dataset, show=False):
         ax.set_xlabel('Tasks')
         ax.set_title('Task {}'.format(i+1))
 
-    fig.savefig('acc_{}.png'.format(dataset))
+    fig.savefig('acc_{}.png'.format(config_str))
     if show:
         plt.show()
 
@@ -50,6 +51,14 @@ def test_plotall():
     accs.append([0.9, 0.5, 0.5, 0.5, 0.5])
     accs.append([0.9, 0.8, 0.55, 0.5, 0.45])
     plot_all(accs, 'splitMNIST',True)
+
+def set_seed(seed):
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+
+def get_device(args):
+    use_cuda = (not args.no_cuda and torch.cuda.is_available())
+    return torch.device("cuda" if use_cuda else "cpu")
 
 if __name__ == "__main__":
     test_plotall()
