@@ -101,8 +101,7 @@ class SplitMNIST10(datasets.MNIST):
     
     def __getitem__(self, index):
         img, target = super(SplitMNIST10, self).__getitem__(index)
-        target -= self.numbers[0]
-        return img, target
+        return img, img
 
 class FashionMNIST(SplitMNIST):
     urls = [
@@ -113,6 +112,10 @@ class FashionMNIST(SplitMNIST):
     ]
     classes = ['T-shirt/top', 'Trouser', 'Pullover', 'Dress', 'Coat', 'Sandal',
                'Shirt', 'Sneaker', 'Bag', 'Ankle boot']
+
+"""
+Test Cases
+"""
 
 def test0(Dataset):
     ds = Dataset("data", 0, download=True)

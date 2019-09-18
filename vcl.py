@@ -93,7 +93,7 @@ def test_all_tasks(coresets, args, model, device, loss_fn, labels_list, split):
 
         # Evaluate on the test set
         testset = get_dataset(args, j, split)
-        test_loader = trainer.get_loader(testset, args, device, 'test')
+        test_loader = trainer.get_loader(testset, args, device, split)
         final_model.set_range(labels)
         _, test_accs[j] = trainer.test(args, final_model, device, test_loader, loss_fn)
 
@@ -108,7 +108,7 @@ def run_vcl(args, device, labels_list):
 
     # Pretraining
     print ("=============Pretraining ==================")
-    model, name = trainer.get_model(args, device, MLE=True)
+    model, name = trainer.get_model(args, device, mle=True)
     loss_fn = trainer.get_loss_fn(args, device, model)
     optimizer = optim.Adam(model.parameters(), lr=args.lr)
     dataset = get_dataset(args, 0, 'trainval')

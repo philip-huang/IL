@@ -55,7 +55,7 @@ class Header(nn.Module):
     #TODO: Header KL divergence not yet separately implemented
 
 class MFVI_DNN(nn.Module):
-    def __init__(self, MLE=False):
+    def __init__(self, mle=False):
         super(MFVI_DNN, self).__init__()
         self.fc11 = nn.Linear(28*28, 256)
         self.fc12 = nn.Linear(28*28, 256)
@@ -69,8 +69,8 @@ class MFVI_DNN(nn.Module):
         self.mu_list = [self.fc11, self.fc21, self.output1]
         self.logvar_list = [self.fc12, self.fc22, self.output2]
 
-        self.MLE = MLE
-        if self.MLE:
+        self.mle = mle
+        if self.mle:
             self.const_init()
 
     def set_range(self, range_):
@@ -100,7 +100,7 @@ class MFVI_DNN(nn.Module):
     
     def forward(self, x):
         x = x.view(-1, 28*28)
-        if not self.MLE:
+        if not self.mle:
             x = F.relu(self.reparametize(self.fc11(x), self.fc12(x)))
             x = F.relu(self.reparametize(self.fc21(x), self.fc22(x)))
             x = self.reparametize(self.output1(x), self.output2(x))

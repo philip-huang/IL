@@ -1,8 +1,9 @@
 import numpy as np
-import torch
+import os.path as osp
 import matplotlib.pyplot as plt
 plt.style.use('ggplot')
-import os.path as osp
+import torch
+import torchvision.utils
 
 def plot_all(all_accs, config_str, show=False):
     fig, ax = plt.subplots()
@@ -35,6 +36,10 @@ def plot_small(task_accs, config_str, show=False):
     fig.savefig('acc_{}.png'.format(config_str))
     if show:
         plt.show()
+
+def save_generated_ims(tensor, config_str, train_id, test_id):
+    fname = "{}_task{}_{}".format(config_str, train_id, test_id)
+    torchvision.utils.save_image(tensor, fname, nrows=10)
 
 def test_plotsmall():
     accs = np.zeros((5, 5))

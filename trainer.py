@@ -10,14 +10,19 @@ import utils
 
 from torchvision import transforms
 from model.baseline import *
+from model.bayesian_generator import VAE, VAE_loss
 
 def train(args, model, device, train_loader, optimizer, epoch, loss_fn, verbose=True):
     model.train()
     for batch_idx, (data, target) in enumerate(train_loader):
         data, target = data.to(device), target.to(device)
         optimizer.zero_grad()
-        output = model(data)
-        loss = loss_fn(output, target)
+        if args.model == 'vae':
+            recon_batch, mu, logvar = model(data)
+            loss = loss_fn(recon_batch, data, mu, logvar)
+        else:
+            output = model(data)
+            loss = loss_fn(output, target)
         loss.backward()
         optimizer.step()
         if verbose and (batch_idx % args.log_interval == 0):
@@ -30,20 +35,30 @@ def test(args, model, device, test_loader, loss_fn, val=False):
     test_loss = 0
     correct = 0
     with torch.no_grad():
-        for data, target in test_loader:
+        for i, (data, target) in enumerate(test_loader):
             data, target = data.to(device), target.to(device)
-            output = model(data)
-            test_loss += loss_fn(output, target, reduction='sum').item() # sum up batch loss
-            pred = output.argmax(dim=1, keepdim=True) # get the index of the max log-probability
-            correct += pred.eq(target.view_as(pred)).sum().item()
+            if args.model == 'vae':
+                recon_batch, mu, logvar = model(data)
+                test_loss += loss_fn(recon_batch, data, mu, logvar).item()
+            else:
+                output = model(data)
+                test_loss += loss_fn(output, target, reduction='sum').item() # sum up batch loss
+                pred = output.argmax(dim=1, keepdim=True) # get the index of the max log-probability
+                correct += pred.eq(target.view_as(pred)).sum().item()
 
     test_loss /= len(test_loader.dataset)
-    acc = float(correct) / len(test_loader.dataset)
-    print('{} set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)'.format(
-        'Val' if val else 'Test',
-        test_loss, correct, len(test_loader.dataset), acc * 100.))
+    if args.model == 'vae':
+        print('{} set: Average loss: {:.4f}'.format(
+            'Val' if val else 'Test',
+            test_loss,))
+        return test_loss
+    else:
+        acc = float(correct) / len(test_loader.dataset)
+        print('{} set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)'.format(
+            'Val' if val else 'Test',
+            test_loss, correct, len(test_loader.dataset), acc * 100.))
 
-    return test_loss, acc
+        return test_loss, acc
 
 
 def get_loader(dataset, args, device, split):
@@ -64,13 +79,15 @@ def get_loader(dataset, args, device, split):
 
     return loader
 
-def get_model(args, device, MLE=False):
+def get_model(args, device, mle=False, task_id=0):
     if args.model == "dnn":
         model = Dnn()
     if args.model == "cnn":
         model = ConvNet()
     if args.model == "vcl":
-        model = MFVI_DNN(MLE=MLE)
+        model = MFVI_DNN(mle=mle)
+    if args.model == "vae":
+        model = VAE(task_id=task_id)
     model_name = 'mnist_{}.pt'.format(args.model)
 
     return model.to(device), model_name
@@ -82,6 +99,8 @@ def get_loss_fn(args, device, model, old_model=None):
         return F.nll_loss
     if args.model == "vcl":
         return VCL_loss(model, old_model).to(device)
+    if args.model == "vae":
+        return VAE_loss(model, old_model).to(device)
 
 def get_model_path(labels, model_name):
     dirname = "{}-{}".format(labels[0], labels[-1])
