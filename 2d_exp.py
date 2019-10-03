@@ -7,39 +7,71 @@ np.random.seed(1)
 # Optimal Function
 # -0.5x^2 + pi/2 * x + 1 - pi^2/8
 
+mode = "online" # online
 a = np.random.randn(3) * 0.1
 lr = 0.01
 momentum = 0.9
-iterations = 20000
+iterations = 10000 # NORAMLLIY 20000 FOR GRAIDNET DESCENT
 batch_size = 32
+damping = 0.001
+si_c = 1
+rls_lamda = 0.99999
+omega2 = 0.5
+num_of_mc_iters = 4
+bgd_eta = 1
+bgd_std_init = 0.05
 
 def f(x):
     return np.power(x, 2) * a[0] + x * a[1] + a[2]
 
-def y(x):
-    return np.sin(x)
+def y(x, omega=1):
+    return np.sin(omega * x)
 
 def loss_f(pred, gt):
     return 0.5 * np.mean(np.power(pred - gt, 2))
 
-def loss_true(low, high, num=5000):
-    x = np.linspace(low, high, num=num)
-    return 0.5 * np.mean(np.power(y(x) - f(x), 2))
+def task1_batch(batch_size):
+    if mode == "continual":
+        x = np.random.uniform(low=0.0, high= np.pi/2, size=batch_size)
+        gt = y(x)
+    elif mode == "online":
+        x = np.random.uniform(low=0.0, high=np.pi, size=batch_size)
+        gt = y(x, omega=1)
+    return x, gt
 
-def expected_loss(param, low, high):
+def task2_batch(batch_size):
+    if mode == "continual":
+        x = np.random.uniform(low=np.pi/2, high= np.pi, size=batch_size)
+        gt = y(x)
+    elif mode == "online":
+        x = np.random.uniform(low=0.0, high=np.pi, size=batch_size)
+        gt = y(x, omega=omega2)
+    return x, gt
+
+def loss_true(low, high, num=5000, omega=1):
+    x = np.linspace(low, high, num=num)
+    return 0.5 * np.mean(np.power(y(x, omega) - f(x), 2))
+
+def expected_loss(param, low, high, omega=1, d=1):
     def antideriv(x):
         result = 0
         a = param[0]
         b = param[1]
         c = param[2]
-        result += 15 * (np.cos(x) + 8 * a * x + 4 * b) * np.sin(x)
-        result -= 60 * (x * (a * x + b ) + c - 2 * a) * np.cos(x)
-        result -= 6 * a * a * np.power(x, 5)
-        result -= 15 * a * b * np.power(x, 4)
-        result -= 10 * (2 * a * c + b * b) * np.power(x, 3)
-        result -= 30 * b * c * x * x
-        result -= 15 * (2 * c * c + 1) * x
-        result = result / (-30)
+        w = omega
+        result -= d * (d * w * np.cos(w * x) + 8 * a * x + 4 * b) * np.sin(w * x) / (2 * w * w)
+        result += 2 * d * (w * w * (x * (a * x + b) + c) - 2 * a) * np.cos(w * x) / (w * w * w)
+        result += (6 * a * a * np.power(x, 5) + 5 * (3 * a * b * np.power(x, 4) \
+            + 2 * (2 * a * c + b * b) * np.power(x, 3) + 3 * (d * d + 2 * c * c) * x)) / 30
+        result += b * c * x * x
+        # result += 15 * (np.cos(x) + 8 * a * x + 4 * b) * np.sin(x)
+        # result -= 60 * (x * (a * x + b ) + c - 2 * a) * np.cos(x)
+        # result -= 6 * a * a * np.power(x, 5)
+        # result -= 15 * a * b * np.power(x, 4)
+        # result -= 10 * (2 * a * c + b * b) * np.power(x, 3)
+        # result -= 30 * b * c * x * x
+        # result -= 15 * (2 * c * c + 1) * x
+        # result = result / (-30)
         return result
     
     loss = antideriv(high) - antideriv(low)
@@ -81,10 +113,10 @@ def loss_surface():
 
 def plot_train(history_1, history_2):
     fig = plt.figure()
-    def add(title, subplot, history, low, high):
+    def add(title, subplot, history, low=0, high=np.pi, omega=1):
         ax = fig.add_subplot(subplot, projection='3d')
         history = np.array(history)
-        loss_true = [expected_loss(p, low, high) for p in history]
+        loss_true = [expected_loss(p, low, high, omega=omega) for p in history]
         scat = ax.scatter(history[:, 0], history[:, 1], history[:, 2], c=loss_true)
         fig.colorbar(scat, shrink=0.5, aspect=5)
 
@@ -101,17 +133,25 @@ def plot_train(history_1, history_2):
         ax.scatter(history[0, 0], history[0, 1], history[0, 2], marker='x', s=100)
         ax.scatter(history[-1, 0], history[-1, 1], history[-1, 2], marker='o', s=100)
 
-    add("task1: task1_loss", 221, history_1, 0, np.pi/2)
-    add("task1: true_loss", 222, history_1, 0, np.pi)
-    add("task2: task2_loss", 223, history_2, np.pi/2, np.pi)
-    add("task2: true_loss", 224, history_2, 0, np.pi)
+    if mode == "continual":
+        add("task1: task1_loss", 231, history_1, low=0, high=np.pi/2)
+        add("task1: task2_loss", 232, history_1, low=np.pi/2, high=np.pi)
+        add("task1: true_loss", 233, history_1, low=0, high=np.pi)
+        add("task2: task2_loss", 234, history_2, low=np.pi/2, high=np.pi)
+        add("task2: task1_loss", 235, history_2, low=0, high=np.pi/2)
+        add("task2: true_loss", 236, history_2, low=0, high=np.pi)
+    else:
+        add("task1: task1_loss", 221, history_1, omega=1)
+        add("task1: task2_loss", 222, history_1, omega=omega2)
+        add("task2: task2_loss", 223, history_2, omega=omega2)
+        add("task2: task1_loss", 224, history_2, omega=1)
     plt.show()
 
 
-def plot(low, high):
+def plot(low, high, omega=1):
     x = np.arange(low, high, 0.01)
     pred = f(x)
-    gt = y(x)
+    gt = y(x, omega)
     plt.plot(x, gt, label='ground truth')
     plt.plot(x, pred, label="prediction")
     plt.xlabel('x')
@@ -119,51 +159,202 @@ def plot(low, high):
     plt.legend()
     plt.show()
 
-loss_surface()
+def exp_sgd():
+    global a
+    #loss_surface()
 
-v = 0
-history_1 = []
-for i in range(iterations):
-    x = np.random.uniform(low=0.0, high= np.pi/2, size=batch_size)
-    pred = f(x)
-    gt = y(x)
-    train_loss = loss_f(pred, gt)
-    test_loss = loss_true(0, np.pi)
-    # 
-    grad_a = np.mean((pred -gt) * np.power(x, 2))
-    grad_b = np.mean((pred -gt) * x)
-    grad_c = np.mean(pred - gt)
-    grad = np.array([grad_a, grad_b, grad_c])
+    v = 0
+    history_1 = []
+    for i in range(iterations):
+        x, gt = task1_batch(batch_size) 
+        pred = f(x)
+        train_loss = loss_f(pred, gt)
+        grad_a = np.mean((pred -gt) * np.power(x, 2))
+        grad_b = np.mean((pred -gt) * x)
+        grad_c = np.mean(pred - gt)
+        grad = np.array([grad_a, grad_b, grad_c])
+        
+        #
+        v = momentum * v + (1-momentum) * grad
+        a = a - lr * v
+        history_1.append(a)
+
+    print(train_loss)
+    print(a)
+    plot(0, np.pi, omega=1)
+
+    v = 0
+    history_2 = []
+    for i in range(iterations):
+        x, gt = task2_batch(batch_size)
+        pred = f(x)
+        train_loss = loss_f(pred, gt)
+        grad_a = np.mean((pred -gt) * np.power(x, 2))
+        grad_b = np.mean((pred -gt) * x)
+        grad_c = np.mean(pred - gt)
+        grad = np.array([grad_a, grad_b, grad_c])
+        
+        #
+        v = momentum * v + (1-momentum) * grad
+        a = a - lr * v
+        history_2.append(a)
+
+    print(train_loss)
+    print(a)
+    omega=1 if mode=="continual" else omega2
+    plot(0, np.pi, omega=omega)
+    plot_train(history_1, history_2)
+
+def exp_si():
+    global a
+
+    w_task1 = np.zeros(3)
+    a_begin = a
+    v = 0
+    history_1 = []
+    for i in range(iterations):
+        x, gt = task1_batch(batch_size)
+        pred = f(x)
+        train_loss = loss_f(pred, gt)
+
+        # Grad
+        grad_a = np.mean((pred -gt) * np.power(x, 2))
+        grad_b = np.mean((pred -gt) * x)
+        grad_c = np.mean(pred - gt)
+        grad = np.array([grad_a, grad_b, grad_c])
+
+        # Update
+        v = momentum * v + (1 - momentum) * grad
+        a_delta = lr * v
+        a = a - a_delta
+        history_1.append(a)
+        w_task1 += grad * a_delta
     
-    #
-    v = momentum * v + (1-momentum) * grad
-    a = a - lr * v
-    history_1.append(a)
+    delta_task1 = a - a_begin
+    reg_1 = np.divide(w_task1, np.power(delta_task1, 2) + damping)
 
-print(train_loss, test_loss)
-print(a)
-plot(0, np.pi)
+    print(train_loss)
+    print(a)
+    plot(0, np.pi)
 
-v = 0
-history_2 = []
-for i in range(iterations):
-    x = np.random.uniform(low=np.pi/2, high= np.pi, size=batch_size)
-    pred = f(x)
-    gt = y(x)
-    train_loss = loss_f(pred, gt)
-    test_loss = loss_true(np.pi/2, np.pi)
-    # 
-    grad_a = np.mean((pred -gt) * np.power(x, 2))
-    grad_b = np.mean((pred -gt) * x)
-    grad_c = np.mean(pred - gt)
-    grad = np.array([grad_a, grad_b, grad_c])
+    w_task2 = np.zeros(3)
+    a_begin = a
+    v = 0
+    history_2 = []
+    for i in range(iterations):
+        x, gt = task2_batch(batch_size)
+        pred = f(x)
+        train_loss = loss_f(pred, gt)
+
+        # Grad from loss
+        grad_a = np.mean((pred -gt) * np.power(x, 2))
+        grad_b = np.mean((pred -gt) * x)
+        grad_c = np.mean(pred - gt)
+        grad = np.array([grad_a, grad_b, grad_c])
+
+        # Grad from SI regularizer
+        grad += 0.5 * si_c * reg_1 * (a - a_begin)
+
+        # Update
+        v = momentum * v + (1 - momentum) * grad
+        a_delta = lr * v
+        a = a - a_delta
+        history_2.append(a)
+        w_task2 += grad - a_delta
     
-    #
-    v = momentum * v + (1-momentum) * grad
-    a = a - lr * v
-    history_2.append(a)
+    delta_task2 = a - a_begin
+    reg_2 = np.divide(w_task2, np.power(delta_task2, 2) + damping)
 
-print(train_loss, test_loss)
-print(a)
-plot(0, np.pi)
-plot_train(history_1, history_2)
+    print(train_loss)
+    print(a)
+    omega=1 if mode=="continual" else omega2
+    plot(0, np.pi, omega=omega)
+    plot_train(history_1, history_2)
+
+def get_init_cov(low, high, size):
+    x = np.random.uniform(low=low, high=high, size=size)
+    basis = np.array([np.power(x, 2), x, np.ones_like(x)]) # 3 by N
+    P_inv = np.matmul(basis, basis.T)
+    P0 = np.linalg.inv(P_inv)
+    print(P0)
+    return P0
+
+def exp_rls():
+    global a
+
+    P0 = get_init_cov(0, np.pi, 32)
+    P_prev = P0
+    history_1 = []
+    for i in range(iterations):
+        x, gt = task1_batch(1)
+        basis = np.array([np.power(x, 2), x, np.ones_like(x)]) # 3 x 1
+        K = P_prev @ basis @ np.linalg.inv(rls_lamda + basis.T @ P_prev @ basis)
+        P = (np.eye(3) - K @ basis.T) @ P_prev / rls_lamda
+        a = a + K @ (gt - basis.T @ a)
+        P_prev = P
+        history_1.append(a)
+
+    print(a)
+    plot(0, np.pi)
+
+    history_2 = []
+    for i in range(iterations):
+        x, gt = task2_batch(1)
+        basis = np.array([np.power(x, 2), x, np.ones_like(x)]) # 3 x 1
+        K = P_prev @ basis @ np.linalg.inv(rls_lamda + basis.T @ P_prev @ basis)
+        P = (np.eye(3) - K @ basis.T) @ P_prev / rls_lamda
+        a = a + K @ (gt - basis.T @ a)
+        history_2.append(a)
+        P_prev = P
+
+    print(a)
+    omega=1 if mode=="continual" else omega2
+    plot(0, np.pi, omega=omega)
+    plot_train(history_1, history_2)
+
+
+def exp_bgd():
+    global a
+    import torch
+    from torch.nn import Parameter
+    from bgd_optim.bgd_optimizer import BGD
+    w = Parameter(torch.tensor(a, dtype=torch.float32))
+    
+    def gen():
+        yield w
+    params = gen()
+    optim = BGD(params, bgd_std_init, mean_eta=bgd_eta, mc_iters=num_of_mc_iters)
+    loss_fn = torch.nn.functional.mse_loss
+
+    def train_task(datagen, omega):
+        history = [w.detach().numpy()]
+        for i in range(iterations):
+            x, gt = datagen(batch_size)
+            x = torch.tensor(x, dtype=torch.float32); gt = torch.tensor(gt, dtype=torch.float32)
+            for k in range(0, num_of_mc_iters):
+                torch.autograd.set_grad_enabled(True)
+                optim.randomize_weights()
+
+                # Forward:
+                outputs = w[0] * x**2 + w[1] * x + w[2]
+                loss = loss_fn(outputs, gt)
+                print(loss)
+                print(w)
+                # Backprop 
+                # Zero the gradient
+                optim.zero_grad()
+                loss.backward()
+                # Accumulate gradients
+                optim.aggregate_grads(batch_size=batch_size)
+            optim.step()
+            history.append(w.detach().numpy())
+        print(loss)
+        plot(0, np.pi, omega=omega)
+        return history
+    
+    history1 = train_task(task1_batch, omega=1)
+    history2 = train_task(task2_batch, omega=omega2 if mode=='online' else 1)
+    plot_train(history1, history2)
+
+
+exp_si()
